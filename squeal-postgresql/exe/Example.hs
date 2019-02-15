@@ -72,10 +72,7 @@ insertEmail :: Manipulation '[] Schemas '[ 'NotNull 'PGint4, 'Null 'PGtext] '[]
 insertEmail = insertInto_ #emails
   (Values_ (defaultAs #id :* param @1 `as` #user_id :* param @2 `as` #email))
 
-getUsers :: Query '[] Schemas '[]
-  '[ "userName" ::: 'NotNull 'PGtext
-   , "userEmail" ::: 'Null 'PGtext
-   , "userVec" ::: 'NotNull ('PGvararray ('Null 'PGint2))]
+getUsers :: Query_ Schemas () User
 getUsers = select_
   (#u ! #name `as` #userName :* #e ! #email `as` #userEmail :* #u ! #vec `as` #userVec)
   ( from (table (#users `as` #u)

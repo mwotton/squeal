@@ -215,7 +215,7 @@ type family Manipulation_ (schemas :: SchemasType) (params :: Type) (row :: Type
 
 -- | Convert a `Query` into a `Manipulation`.
 queryStatement
-  :: Query commons schemas params columns
+  :: Query '[] commons schemas params columns
   -> Manipulation commons schemas params columns
 queryStatement q = UnsafeManipulation $ renderSQL q
 
@@ -269,11 +269,11 @@ data QueryClause commons schemas params columns where
   Select
     :: SOP.SListI columns
     => NP (ColumnExpression schemas params grp from) columns
-    -> TableExpression commons schemas params grp from
+    -> TableExpression '[] commons schemas params grp from
     -> QueryClause commons schemas params columns
   Subquery
     :: ColumnsToRow columns ~ row
-    => Query commons schemas params row
+    => Query '[] commons schemas params row
     -> QueryClause commons schemas params columns
 
 instance RenderSQL (QueryClause commons schemas params columns) where
@@ -320,17 +320,17 @@ data ColumnExpression schemas params grp from column where
     => Alias col
     -> ColumnExpression schemas params grp from (col ::: 'Def :=> ty)
   Specific
-    :: Aliased (Expression '[] schemas params grp from) (col ::: ty)
+    :: Aliased (Expression '[] '[] schemas params grp from) (col ::: ty)
     -> ColumnExpression schemas params grp from (col ::: defness :=> ty)
 
 instance (KnownSymbol col, column ~ (col ::: defness :=> ty))
   => Aliasable col
-       (Expression '[] schemas params grp from ty)
+       (Expression '[] '[] schemas params grp from ty)
        (ColumnExpression schemas params grp from column) where
          expression `as` col = Specific (expression `As` col)
 instance (KnownSymbol col, columns ~ '[col ::: defness :=> ty])
   => Aliasable col
-       (Expression '[] schemas params grp from ty)
+       (Expression '[] '[] schemas params grp from ty)
        (NP (ColumnExpression schemas params grp from) columns) where
          expression `as` col = expression `as` col :* Nil
 instance (KnownSymbol col, column ~ (col ::: 'Def :=> ty))
@@ -407,7 +407,7 @@ instance RenderSQL (ColumnExpression schemas params grp from column) where
 -- in the row. Use @Returning Nil@ in the common case where no return
 -- values are desired.
 newtype ReturningClause commons schemas params from row =
-  Returning (Selection commons schemas params 'Ungrouped from row)
+  Returning (Selection '[] commons schemas params 'Ungrouped from row)
 
 instance RenderSQL (ReturningClause commons schemas params from row) where
   renderSQL = \case
@@ -416,7 +416,7 @@ instance RenderSQL (ReturningClause commons schemas params from row) where
 
 pattern Returning_
   :: SOP.SListI row
-  => NP (Aliased (Expression commons schemas params 'Ungrouped from)) row
+  => NP (Aliased (Expression '[] commons schemas params 'Ungrouped from)) row
   -> ReturningClause commons schemas params from row
 pattern Returning_ list = Returning (List list)
 
@@ -449,7 +449,7 @@ data ConflictAction tab commons schemas params columns where
        , SOP.All (HasIn columns) subcolumns
        , AllUnique subcolumns )
     => NP (ColumnExpression schemas params 'Ungrouped '[tab ::: row, "excluded" ::: row]) subcolumns
-    -> [Condition commons schemas params 'Ungrouped '[tab ::: row, "excluded" ::: row]]
+    -> [Condition '[] commons schemas params 'Ungrouped '[tab ::: row, "excluded" ::: row]]
     -> ConflictAction tab commons schemas params columns
 
 instance RenderSQL (ConflictAction tab commons schemas params columns) where
@@ -494,7 +494,7 @@ update
   => QualifiedAlias sch tab -- ^ table to update
   -> NP (ColumnExpression schemas params 'Ungrouped '[tab ::: row0]) subcolumns
   -- ^ modified values to replace old values
-  -> Condition commons schemas params 'Ungrouped '[tab ::: row0]
+  -> Condition '[] commons schemas params 'Ungrouped '[tab ::: row0]
   -- ^ condition under which to perform update on a row
   -> ReturningClause commons schemas params '[tab ::: row0] row1 -- ^ results to return
   -> Manipulation commons schemas params row1
@@ -519,7 +519,7 @@ update_
   => QualifiedAlias sch tab -- ^ table to update
   -> NP (ColumnExpression schemas params 'Ungrouped '[tab ::: row]) subcolumns
   -- ^ modified values to replace old values
-  -> Condition commons schemas params 'Ungrouped '[tab ::: row]
+  -> Condition '[] commons schemas params 'Ungrouped '[tab ::: row]
   -- ^ condition under which to perform update on a row
   -> Manipulation commons schemas params '[]
 update_ tab columns wh = update tab columns wh (Returning_ Nil)
@@ -531,7 +531,7 @@ DELETE statements
 data UsingClause commons schemas params from where
   NoUsing :: UsingClause commons schemas params '[]
   Using
-    :: FromClause commons schemas params from
+    :: FromClause '[] commons schemas params from
     -> UsingClause commons schemas params from
 
 -- | Delete rows from a table.
@@ -544,7 +544,7 @@ deleteFrom
      , columns ~ TableToColumns table )
   => QualifiedAlias sch tab -- ^ table to delete from
   -> UsingClause commons schemas params from
-  -> Condition commons schemas params 'Ungrouped (tab ::: row0 ': from)
+  -> Condition '[] commons schemas params 'Ungrouped (tab ::: row0 ': from)
   -- ^ condition under which to delete a row
   -> ReturningClause commons schemas params '[tab ::: row0] row1 -- ^ results to return
   -> Manipulation commons schemas params row1
@@ -566,7 +566,7 @@ deleteFrom_
      , columns ~ TableToColumns table )
   => QualifiedAlias sch tab -- ^ table to delete from
   -> UsingClause commons schemas params from
-  -> Condition commons schemas params 'Ungrouped (tab ::: row ': from)
+  -> Condition '[] commons schemas params 'Ungrouped (tab ::: row ': from)
   -- ^ condition under which to delete a row
   -> Manipulation commons schemas params '[]
 deleteFrom_ tab uses wh = deleteFrom tab uses wh (Returning_ Nil)
@@ -577,10 +577,10 @@ deleteFrom_ tab uses wh = deleteFrom tab uses wh (Returning_ Nil)
 -- a comma separated list of tables. Typical case is the `USING` clause
 -- of a DELETE query.
 also
-  :: FromClause commons schemas params right
+  :: FromClause corr commons schemas params right
   -- ^ right
-  -> FromClause commons schemas params left
+  -> FromClause corr commons schemas params left
   -- ^ left
-  -> FromClause commons schemas params (Join left right)
+  -> FromClause corr commons schemas params (Join left right)
 also right left = UnsafeFromClause $
   renderSQL left <> "," <+> renderSQL right
