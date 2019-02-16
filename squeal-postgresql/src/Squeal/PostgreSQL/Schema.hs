@@ -782,6 +782,7 @@ RowPG Person :: [(Symbol, NullityType)]
 = '["name" ::: 'NotNull 'PGtext, "age" ::: 'NotNull 'PGint4]
 -}
 type family RowPG (hask :: Type) :: RowType where
+  RowPG (P (col ::: head), tail) = col ::: NullPG head ': RowPG tail
   RowPG hask = RowOf (RecordCodeOf hask)
 
 type family RowOf (fields :: [(Symbol, Type)]) :: RowType where

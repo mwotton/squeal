@@ -197,6 +197,7 @@ True
   , TypeInType
   , TypeOperators
   , UndecidableInstances
+  , PatternSynonyms
 #-}
 
 module Squeal.PostgreSQL.Binary
@@ -208,6 +209,7 @@ module Squeal.PostgreSQL.Binary
   , FromRow (..)
     -- * Only
   , Only (..)
+  , pattern Entity
   ) where
 
 import BinaryParser
@@ -659,4 +661,18 @@ replicateMN
   :: forall x xs m. (All ((~) x) xs, Monad m, SListI xs)
   => m x -> m (NP I xs)
 replicateMN mx = hsequence' $
-  hcpure (Proxy :: Proxy ((~) x)) (Comp (I <$> mx)) 
+  hcpure (Proxy :: Proxy ((~) x)) (Comp (I <$> mx))
+
+-- data Entity key val = Entity
+--   { entityKey :: key
+--   , entityVal :: val
+--   } deriving ( Eq, Show, GHC.Generic, Generic, HasDatatypeInfo )
+instance (FromField (col ::: pgkey) (col ::: key), FromRow pgval val)
+  => FromRow (col ::: pgkey ': pgval) (P (col ::: key), val) where
+    fromRow (key :* val) = (,) <$> (unComp . fromField) key <*> fromRow val
+-- instance (ToNullityParam key pgkey, ToParams val pgval)
+--   => ToParams (Entity key val) (pgkey ': pgval) where
+--     toParams (Entity key val) = toNullityParam key :* toParams val
+
+pattern Entity :: forall id key val. key -> val -> (P (id ::: key), val)
+pattern Entity k v = (P k, v)
