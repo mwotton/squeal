@@ -66,10 +66,6 @@ module Squeal.PostgreSQL.Schema
   , HasAll
   , QualifiedAlias (..)
   , IsQualified (..)
-  , HasIn
-  , IsNotElem
-  , AllUnique
-  , DefaultAliasable (..)
     -- * Enumerated Labels
   , IsPGlabel (..)
   , PGlabel (..)
@@ -113,6 +109,8 @@ module Squeal.PostgreSQL.Schema
   , TableToColumns
   , ColumnsToRow
   , TableToRow
+  , InsertRow
+  , UpdateRow
   ) where
 
 import Control.Category
@@ -432,34 +430,6 @@ instance {-# OVERLAPPING #-} KnownSymbol alias
   => Has alias (alias ::: field ': fields) field
 instance {-# OVERLAPPABLE #-} (KnownSymbol alias, Has alias fields field)
   => Has alias (field' ': fields) field
-
-{-| @HasIn fields (alias ::: field)@ is a constraint that proves that
-@fields@ has a field of @alias ::: field@. It is used in @UPDATE@s to
-choose which subfields to update.
--}
-class HasIn fields field where
-instance (Has alias fields field) => HasIn fields (alias ::: field) where
-
--- | Utility class for `AllUnique` to provide nicer error messages.
-class IsNotElem x isElem where
-instance IsNotElem x 'False where
-instance (TypeError (      'Text "Cannot assign to "
-                      ':<>: 'ShowType alias
-                      ':<>: 'Text " more than once"))
-   => IsNotElem '(alias, a) 'True where
-
--- | No elem of @xs@ appears more than once, in the context of assignment.
-class AllUnique (xs :: [(Symbol, a)]) where
-instance AllUnique '[] where
-instance (IsNotElem x (Elem x xs), AllUnique xs) => AllUnique (x ': xs) where
-
-{- |
-The `DefaultAliasable` class is intended to help with Scrap your Nils
-for default inserts and updates.
--}
-class KnownSymbol alias
-  => DefaultAliasable alias aliased | aliased -> alias where
-    defaultAs :: Alias alias -> aliased
 
 -- | `HasAll` extends `Has` to take lists of @aliases@ and @fields@ and infer
 -- a list of @subfields@.
@@ -784,3 +754,47 @@ instance (forall t0 t1. RenderSQL (p t0 t1))
 -- | A `single` step.
 single :: p x0 x1 -> AlignedList p x0 x1
 single step = step :>> Done
+
+type family InsertRow (sch :: Symbol) (tab :: Symbol)
+  (row :: RowType) (columns :: ColumnsType) :: Constraint where
+    InsertRow sch tab '[] '[] = ()
+    InsertRow sch tab
+      (col ::: ty ': row) (col ::: defness :=> ty ': columns) =
+        InsertRow sch tab row columns
+    InsertRow sch tab
+      (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) = TypeError
+        ( 'Text "Could not match type " ':<>: ShowType ty0
+          ':<>: 'Text " with expected type " ':<>: ShowType ty1
+          ':<>: 'Text " for columns " ':<>: 'Text col
+          ':<>: 'Text " in table "
+          ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
+    InsertRow sch tab row (alias ::: 'Def :=> ty' ': columns) =
+      InsertRow sch tab row columns
+    InsertRow sch tab row (alias ::: defness :=> 'Null ty ': columns) =
+      InsertRow sch tab row columns
+    InsertRow sch tab (col ': row) '[] = TypeError
+      ( 'Text "Column " ':<>: 'ShowType col
+        ':<>: 'Text " not found in table "
+        ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
+
+type family UpdateRow (sch :: Symbol) (tab :: Symbol)
+  (row :: RowType) (columns :: ColumnsType) :: Constraint where
+    UpdateRow sch tab '[] columns = ()
+    UpdateRow sch tab
+      (col ::: ty ': row) (col ::: defness :=> ty ': columns) =
+        UpdateRow sch tab row columns
+    UpdateRow sch tab
+      (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) = TypeError
+        ( 'Text "Could not match type " ':<>: ShowType ty0
+          ':<>: 'Text " with expected type " ':<>: ShowType ty1
+          ':<>: 'Text " for columns " ':<>: 'Text col
+          ':<>: 'Text " in table "
+          ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
+    UpdateRow sch tab row (alias ::: 'Def :=> ty' ': columns) =
+      UpdateRow sch tab row columns
+    UpdateRow sch tab row (alias ::: defness :=> 'Null ty ': columns) =
+      UpdateRow sch tab row columns
+    UpdateRow sch tab (col ': row) '[] = TypeError
+      ( 'Text "Column " ':<>: 'ShowType col
+        ':<>: 'Text " not found in table "
+        ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )

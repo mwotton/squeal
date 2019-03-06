@@ -119,7 +119,7 @@ We'll need a Haskell type for users. We give the type `Generics.SOP.Generic` and
 `Generics.SOP.HasDatatypeInfo` instances so that we can decode the rows
 we receive when we run @getUsers@. Notice that the record fields of the
 @User@ type match the column names of @getUsers@.
- 
+
 >>> data User = User { userName :: Text, userEmail :: Maybe Text } deriving (Show, GHC.Generic)
 >>> instance SOP.Generic User
 >>> instance SOP.HasDatatypeInfo User
@@ -130,14 +130,14 @@ let
   insertUser = with (u `as` #u) e
     where
       u = insertInto #users
-        (Values_ (defaultAs #id :* param @1 `as` #name))
+        (Values_ (param @1 `as` #name))
         OnConflictDoRaise (Returning_ (#id :* param @2 `as` #email))
       e = insertInto_ #emails
-        (Select (defaultAs #id :* #u ! #id `as` #user_id :* #u ! #email) (from (common #u)))
+        (Subquery (select_ (#u ! #id `as` #user_id :* #u ! #email) (from (common #u))))
 :}
 
 >>> printSQL insertUser
-WITH "u" AS (INSERT INTO "users" ("id", "name") VALUES (DEFAULT, ($1 :: text)) RETURNING "id" AS "id", ($2 :: text) AS "email") INSERT INTO "emails" ("user_id", "email") SELECT "u"."id", "u"."email" FROM "u" AS "u"
+WITH "u" AS (INSERT INTO "users" ("id", "name") VALUES (($1 :: text)) RETURNING "id" AS "id", ($2 :: text) AS "email") INSERT INTO "emails" ("user_id", "email") SELECT "u"."id", "u"."email" FROM "u" AS "u"
 
 Next we write a `Query` to retrieve users from the database. We're not
 interested in the ids here, just the usernames and email addresses. We

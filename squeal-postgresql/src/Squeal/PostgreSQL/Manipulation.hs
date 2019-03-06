@@ -34,8 +34,6 @@ module Squeal.PostgreSQL.Manipulation
   , queryStatement
   , QueryClause (..)
   , pattern Values_
-  , DefaultAliasable (..)
-  , ColumnExpression (..)
   , ReturningClause (..)
   , pattern Returning_
   , ConflictClause (..)
@@ -57,7 +55,6 @@ module Squeal.PostgreSQL.Manipulation
 import Control.DeepSeq
 import Data.ByteString hiding (foldr)
 import Data.Kind (Type)
-import GHC.TypeLits (KnownSymbol)
 
 import qualified Generics.SOP as SOP
 import qualified GHC.Generics as GHC
@@ -81,10 +78,10 @@ simple insert:
 let
   manipulation :: Manipulation '[] (Public Schema) '[] '[]
   manipulation =
-    insertInto_ #tab (Values_ (2 `as` #col1 :* defaultAs #col2))
+    insertInto_ #tab (Values_ (2 `as` #col1))
 in printSQL manipulation
 :}
-INSERT INTO "tab" ("col1", "col2") VALUES (2, DEFAULT)
+INSERT INTO "tab" ("col1") VALUES (2)
 
 parameterized insert:
 
@@ -234,12 +231,13 @@ insertInto
   :: ( Has sch schemas schema
      , Has tab schema ('Table table)
      , columns ~ TableToColumns table
+     , InsertRow sch tab inserts columns
      , row0 ~ TableToRow table
      , SOP.SListI columns
      , SOP.SListI row1 )
   => QualifiedAlias sch tab
-  -> QueryClause commons schemas params columns
-  -> ConflictClause tab commons schemas params table
+  -> QueryClause commons schemas params inserts
+  -> ConflictClause sch tab commons schemas params table
   -> ReturningClause commons schemas params '[tab ::: row0] row1
   -> Manipulation commons schemas params row1
 insertInto tab qry conflict ret = UnsafeManipulation $
@@ -252,149 +250,47 @@ insertInto_
   :: ( Has sch schemas schema
      , Has tab schema ('Table table)
      , columns ~ TableToColumns table
+     , InsertRow sch tab inserts columns
      , row ~ TableToRow table
      , SOP.SListI columns )
   => QualifiedAlias sch tab
-  -> QueryClause commons schemas params columns
+  -> QueryClause commons schemas params inserts
   -> Manipulation commons schemas params '[]
 insertInto_ tab qry =
   insertInto tab qry OnConflictDoRaise (Returning_ Nil)
 
-data QueryClause commons schemas params columns where
+data QueryClause commons schemas params row where
   Values
-    :: SOP.SListI columns
-    => NP (ColumnExpression 'Ungrouped schemas params '[]) columns
-    -> [NP (ColumnExpression 'Ungrouped schemas params '[]) columns]
-    -> QueryClause commons schemas params columns
-  Select
-    :: SOP.SListI columns
-    => NP (ColumnExpression grp schemas params from) columns
-    -> TableExpression '[] grp commons schemas params from
-    -> QueryClause commons schemas params columns
+    :: SOP.SListI row
+    => NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[])) row
+    -> [NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[])) row]
+    -> QueryClause commons schemas params row
   Subquery
-    :: ColumnsToRow columns ~ row
+    :: SOP.SListI row
     => Query '[] commons schemas params row
-    -> QueryClause commons schemas params columns
+    -> QueryClause commons schemas params row
 
-instance RenderSQL (QueryClause commons schemas params columns) where
+instance RenderSQL (QueryClause commons schemas params row) where
   renderSQL = \case
     Values row0 rows ->
-      parenthesized (renderCommaSeparated renderSQLPart row0)
+      parenthesized (renderCommaSeparated renderAliasPart row0)
       <+> "VALUES"
       <+> commaSeparated
             ( parenthesized
             . renderCommaSeparated renderValuePart <$> row0 : rows )
-    Select row0 tab ->
-      parenthesized (renderCommaSeparatedMaybe renderSQLPartMaybe row0)
-      <+> "SELECT"
-      <+> renderCommaSeparatedMaybe renderValuePartMaybe row0
-      <+> renderSQL tab
     Subquery qry -> renderQuery qry
     where
-      renderSQLPartMaybe, renderValuePartMaybe
-        :: ColumnExpression grp schemas params from column -> Maybe ByteString
-      renderSQLPartMaybe = \case
-        DefaultAs _ -> Nothing
-        Specific (_ `As` name) -> Just $ renderSQL name
-      renderValuePartMaybe = \case
-        DefaultAs _ -> Nothing
-        Specific (value `As` _) -> Just $ renderExpression value
-      renderSQLPart, renderValuePart
-        :: ColumnExpression grp schemas params from column -> ByteString
-      renderSQLPart = \case
-        DefaultAs name -> renderSQL name
-        Specific (_ `As` name) -> renderSQL name
-      renderValuePart = \case
-        DefaultAs _ -> "DEFAULT"
-        Specific (value `As` _) -> renderExpression value
+      renderAliasPart, renderValuePart
+        :: Aliased (Expression '[] 'Ungrouped commons schemas params '[]) col
+        -> ByteString
+      renderAliasPart (_ `As` name) = renderSQL name
+      renderValuePart (value `As` _) = renderSQL value
 
 pattern Values_
-  :: SOP.SListI columns
-  => NP (ColumnExpression 'Ungrouped schemas params '[]) columns
-  -> QueryClause commons schemas params columns
+  :: SOP.SListI row
+  => NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[])) row
+  -> QueryClause commons schemas params row
 pattern Values_ vals = Values vals []
-
-data ColumnExpression grp schemas params from column where
-  DefaultAs
-    :: KnownSymbol col
-    => Alias col
-    -> ColumnExpression grp schemas params from (col ::: 'Def :=> ty)
-  Specific
-    :: Aliased (Expression '[] grp '[] schemas params from) (col ::: ty)
-    -> ColumnExpression grp schemas params from (col ::: defness :=> ty)
-
-instance (KnownSymbol col, column ~ (col ::: defness :=> ty))
-  => Aliasable col
-       (Expression '[] grp '[] schemas params from ty)
-       (ColumnExpression grp schemas params from column) where
-         expression `as` col = Specific (expression `As` col)
-instance (KnownSymbol col, columns ~ '[col ::: defness :=> ty])
-  => Aliasable col
-       (Expression '[] grp '[] schemas params from ty)
-       (NP (ColumnExpression grp schemas params from) columns) where
-         expression `as` col = expression `as` col :* Nil
-instance (KnownSymbol col, column ~ (col ::: 'Def :=> ty))
-  => DefaultAliasable col (ColumnExpression grp schemas params from column) where
-    defaultAs = DefaultAs
-instance (KnownSymbol col, columns ~ '[col ::: 'Def :=> ty])
-  => DefaultAliasable col (NP (ColumnExpression grp schemas params from) columns) where
-    defaultAs col = defaultAs col :* Nil
-
-instance (HasUnique tab from row, Has col row ty, column ~ (col ::: defness :=> ty))
-  => IsLabel col (ColumnExpression 'Ungrouped schemas params from column) where
-    fromLabel = fromLabel @col `as` Alias
-instance (HasUnique tab from row, Has col row ty, columns ~ '[col ::: defness :=> ty])
-  => IsLabel col
-    (NP (ColumnExpression 'Ungrouped schemas params from) columns) where
-    fromLabel = fromLabel @col `as` Alias
-
-instance (Has tab from row, Has col row ty, column ~ (col ::: defness :=> ty))
-  => IsQualified tab col (ColumnExpression 'Ungrouped schemas params from column) where
-    tab ! col = tab ! col `as` col
-instance (Has tab from row, Has col row ty, columns ~ '[col ::: defness :=> ty])
-  => IsQualified tab col (NP (ColumnExpression 'Ungrouped schemas params from) columns) where
-    tab ! col = tab ! col `as` col
-
-instance
-  ( HasUnique tab from row
-  , Has col row ty
-  , GroupedBy tab col bys
-  , column ~ (col ::: defness :=> ty)
-  ) => IsLabel col
-    (ColumnExpression ('Grouped bys) schemas params from column) where
-      fromLabel = fromLabel @col `as` Alias
-instance
-  ( HasUnique tab from row
-  , Has col row ty
-  , GroupedBy tab col bys
-  , columns ~ '[col ::: defness :=> ty]
-  ) => IsLabel col
-    (NP (ColumnExpression ('Grouped bys) schemas params from) columns) where
-      fromLabel = fromLabel @col `as` Alias
-
-instance
-  ( Has tab from row
-  , Has col row ty
-  , GroupedBy tab col bys
-  , column ~ (col ::: defness :=> ty)
-  ) => IsQualified tab col
-    (ColumnExpression ('Grouped bys) schemas params from column) where
-      tab ! col = tab ! col `as` col
-instance
-  ( Has tab from row
-  , Has col row ty
-  , GroupedBy tab col bys
-  , columns ~ '[col ::: defness :=> ty]
-  ) => IsQualified tab col
-    (NP (ColumnExpression ('Grouped bys) schemas params from) columns) where
-      tab ! col = tab ! col :* Nil
-
-instance RenderSQL (ColumnExpression grp schemas params from column) where
-  renderSQL = \case
-    DefaultAs col ->
-      renderSQL col <+> "=" <+> "DEFAULT"
-    Specific (expression `As` col) ->
-      renderSQL col <+> "=" <+> renderSQL expression
 
 -- | A `ReturningClause` computes and return value(s) based
 -- on each row actually inserted, updated or deleted. This is primarily
@@ -425,39 +321,39 @@ pattern Returning_ list = Returning (List list)
 -- `OnConflict` `DoNothing` simply avoids inserting a row.
 -- `OnConflict` `DoUpdate` updates the existing row that conflicts with the row
 -- proposed for insertion.
-data ConflictClause tab commons schemas params table where
-  OnConflictDoRaise :: ConflictClause tab commons schemas params table
+data ConflictClause sch tab commons schemas params table where
+  OnConflictDoRaise :: ConflictClause sch tab commons schemas params table
   OnConflict
     :: ConflictTarget constraints
-    -> ConflictAction tab commons schemas params columns
-    -> ConflictClause tab commons schemas params (constraints :=> columns)
+    -> ConflictAction sch tab commons schemas params columns
+    -> ConflictClause sch tab commons schemas params (constraints :=> columns)
 
 -- | Render a `ConflictClause`.
 instance SOP.SListI (TableToColumns table)
-  => RenderSQL (ConflictClause tab commons schemas params table) where
+  => RenderSQL (ConflictClause sch tab commons schemas params table) where
     renderSQL = \case
       OnConflictDoRaise -> ""
       OnConflict target action -> " ON CONFLICT"
         <+> renderSQL target <+> renderSQL action
 
-data ConflictAction tab commons schemas params columns where
-  DoNothing :: ConflictAction tab commons schemas params columns
+data ConflictAction sch tab commons schemas params columns where
+  DoNothing :: ConflictAction sch tab commons schemas params columns
   DoUpdate
     :: ( row ~ ColumnsToRow columns
        , SOP.SListI columns
        , columns ~ (col0 ': cols)
-       , SOP.All (HasIn columns) subcolumns
-       , AllUnique subcolumns )
-    => NP (ColumnExpression 'Ungrouped schemas params '[tab ::: row, "excluded" ::: row]) subcolumns
+       , UpdateRow sch tab updates columns
+       , SOP.SListI updates )
+    => NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[tab ::: row, "excluded" ::: row])) updates
     -> [Condition '[] 'Ungrouped commons schemas params '[tab ::: row, "excluded" ::: row]]
-    -> ConflictAction tab commons schemas params columns
+    -> ConflictAction sch tab commons schemas params columns
 
-instance RenderSQL (ConflictAction tab commons schemas params columns) where
+instance RenderSQL (ConflictAction sch tab commons schemas params columns) where
   renderSQL = \case
     DoNothing -> "DO NOTHING"
     DoUpdate updates whs'
       -> "DO UPDATE SET"
-        <+> renderCommaSeparated renderSQL updates
+        <+> renderCommaSeparated renderUpdate updates
         <> case whs' of
           [] -> ""
           wh:whs -> " WHERE" <+> renderSQL (foldr (.&&) wh whs)
@@ -484,15 +380,14 @@ UPDATE statements
 update
   :: ( SOP.SListI columns
      , SOP.SListI row1
-     , db ~ (commons :=> schemas)
      , Has sch schemas schema
      , Has tab schema ('Table table)
      , row0 ~ TableToRow table
      , columns ~ TableToColumns table
-     , SOP.All (HasIn columns) subcolumns
-     , AllUnique subcolumns )
+     , UpdateRow sch tab updates columns
+     , SOP.SListI updates )
   => QualifiedAlias sch tab -- ^ table to update
-  -> NP (ColumnExpression 'Ungrouped schemas params '[tab ::: row0]) subcolumns
+  -> NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[tab ::: row0])) updates
   -- ^ modified values to replace old values
   -> Condition '[] 'Ungrouped commons schemas params '[tab ::: row0]
   -- ^ condition under which to perform update on a row
@@ -502,22 +397,27 @@ update tab columns wh returning = UnsafeManipulation $
   "UPDATE"
   <+> renderSQL tab
   <+> "SET"
-  <+> renderCommaSeparated renderSQL columns
+  <+> renderCommaSeparated renderUpdate columns
   <+> "WHERE" <+> renderSQL wh
   <> renderSQL returning
+
+renderUpdate
+  :: Aliased (Expression '[] 'Ungrouped commons schemas params from) col
+  -> ByteString
+renderUpdate (expression `As` col) =
+  renderSQL col <+> "=" <+> renderSQL expression
 
 -- | Update a row returning `Nil`.
 update_
   :: ( SOP.SListI columns
-     , db ~ (commons :=> schemas)
      , Has sch schemas schema
      , Has tab schema ('Table table)
      , row ~ TableToRow table
      , columns ~ TableToColumns table
-     , SOP.All (HasIn columns) subcolumns
-     , AllUnique subcolumns )
+     , UpdateRow sch tab updates columns
+     , SOP.SListI updates )
   => QualifiedAlias sch tab -- ^ table to update
-  -> NP (ColumnExpression 'Ungrouped schemas params '[tab ::: row]) subcolumns
+  -> NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[tab ::: row])) updates
   -- ^ modified values to replace old values
   -> Condition '[] 'Ungrouped commons schemas params '[tab ::: row]
   -- ^ condition under which to perform update on a row
@@ -537,7 +437,6 @@ data UsingClause commons schemas params from where
 -- | Delete rows from a table.
 deleteFrom
   :: ( SOP.SListI row1
-     , db ~ (commons :=> schemas)
      , Has sch schemas schema
      , Has tab schema ('Table table)
      , row0 ~ TableToRow table
@@ -559,8 +458,7 @@ deleteFrom tab using wh returning = UnsafeManipulation $
 
 -- | Delete rows returning `Nil`.
 deleteFrom_
-  :: ( db ~ (commons :=> schemas)
-     , Has sch schemas schema
+  :: ( Has sch schemas schema
      , Has tab schema ('Table table)
      , row ~ TableToRow table
      , columns ~ TableToColumns table )
