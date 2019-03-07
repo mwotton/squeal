@@ -755,16 +755,6 @@ instance (forall t0 t1. RenderSQL (p t0 t1))
 single :: p x0 x1 -> AlignedList p x0 x1
 single step = step :>> Done
 
--- class InsertRow (sch :: Symbol) (tab :: Symbol)
---   (row :: RowType) (columns :: ColumnsType) where
--- instance {-# OVERLAPPABLE #-} InsertRow sch tab '[] '[]
--- instance {-# OVERLAPPABLE #-} (col0 ~ col1, ty0 ~ ty1, InsertRow sch tab row columns)
---   => InsertRow sch tab (col0 ::: ty0 ': row) (col1 ::: defness :=> ty1 ': columns)
--- instance {-# OVERLAPPING #-} InsertRow sch tab row columns
---   => InsertRow sch tab row (alias ::: 'Def :=> ty' ': columns)
--- instance {-# OVERLAPPING #-} InsertRow sch tab row columns
---   => InsertRow sch tab row (alias ::: 'NoDef :=> 'Null ty ': columns)
-
 type family InsertRow (sch :: Symbol) (tab :: Symbol)
   (row :: RowType) (columns :: ColumnsType) :: Constraint where
     InsertRow sch tab '[] '[] = ()
