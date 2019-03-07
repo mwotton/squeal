@@ -771,16 +771,9 @@ type family InsertRow (sch :: Symbol) (tab :: Symbol)
     InsertRow sch tab
       (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) =
         (ty0 ~ ty1, InsertRow sch tab row columns)
-    -- InsertRow sch tab
-    --   (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) = TypeError
-    --     ( 'Text "Could not match type " ':<>: ShowType ty0
-    --       ':<>: 'Text " with expected type " ':<>: ShowType ty1
-    --       ':<>: 'Text " for columns " ':<>: 'Text col
-    --       ':<>: 'Text " in table "
-    --       ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
-    InsertRow sch tab row (alias ::: 'Def :=> ty' ': columns) =
+    InsertRow sch tab row (col ::: 'Def :=> ty' ': columns) =
       InsertRow sch tab row columns
-    InsertRow sch tab row (alias ::: defness :=> 'Null ty ': columns) =
+    InsertRow sch tab row (col ::: defness :=> 'Null ty ': columns) =
       InsertRow sch tab row columns
     InsertRow sch tab (col ': row) '[] = TypeError
       ( 'Text "Column " ':<>: 'ShowType col
@@ -793,13 +786,8 @@ type family UpdateRow (sch :: Symbol) (tab :: Symbol)
     UpdateRow sch tab
       (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) =
         (ty0 ~ ty1, UpdateRow sch tab row columns)
-    UpdateRow sch tab
-      (col0 ::: ty0 ': row) (col1 ::: ty1 ': columns) =
-        UpdateRow sch tab (col0 ::: ty0 ': row) columns
-    UpdateRow sch tab row (alias ::: 'Def :=> ty' ': columns) =
-      UpdateRow sch tab row columns
-    UpdateRow sch tab row (alias ::: defness :=> 'Null ty ': columns) =
-      UpdateRow sch tab row columns
+    UpdateRow sch tab row (col ::: ty ': columns) =
+        UpdateRow sch tab row columns
     UpdateRow sch tab (col ': row) '[] = TypeError
       ( 'Text "Column " ':<>: 'ShowType col
         ':<>: 'Text " not found in table "
