@@ -137,7 +137,7 @@ let
 :}
 
 >>> printSQL insertUser
-WITH "u" AS (INSERT INTO "users" ("id", "name") VALUES (($1 :: text)) RETURNING "id" AS "id", ($2 :: text) AS "email") INSERT INTO "emails" ("user_id", "email") SELECT "u"."id", "u"."email" FROM "u" AS "u"
+WITH "u" AS (INSERT INTO "users" ("name") VALUES (($1 :: text)) RETURNING "id" AS "id", ($2 :: text) AS "email") INSERT INTO "emails" SELECT "u"."id" AS "user_id", "u"."email" AS "email" FROM "u" AS "u"
 
 Next we write a `Query` to retrieve users from the database. We're not
 interested in the ids here, just the usernames and email addresses. We
@@ -162,7 +162,7 @@ Let's create some users to add to the database.
 >>> :{
 let
   users :: [User]
-  users = 
+  users =
     [ User "Alice" (Just "alice@gmail.com")
     , User "Bob" Nothing
     , User "Carole" (Just "carole@hotmail.com")

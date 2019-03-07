@@ -755,19 +755,29 @@ instance (forall t0 t1. RenderSQL (p t0 t1))
 single :: p x0 x1 -> AlignedList p x0 x1
 single step = step :>> Done
 
+-- class InsertRow (sch :: Symbol) (tab :: Symbol)
+--   (row :: RowType) (columns :: ColumnsType) where
+-- instance {-# OVERLAPPABLE #-} InsertRow sch tab '[] '[]
+-- instance {-# OVERLAPPABLE #-} (col0 ~ col1, ty0 ~ ty1, InsertRow sch tab row columns)
+--   => InsertRow sch tab (col0 ::: ty0 ': row) (col1 ::: defness :=> ty1 ': columns)
+-- instance {-# OVERLAPPING #-} InsertRow sch tab row columns
+--   => InsertRow sch tab row (alias ::: 'Def :=> ty' ': columns)
+-- instance {-# OVERLAPPING #-} InsertRow sch tab row columns
+--   => InsertRow sch tab row (alias ::: 'NoDef :=> 'Null ty ': columns)
+
 type family InsertRow (sch :: Symbol) (tab :: Symbol)
   (row :: RowType) (columns :: ColumnsType) :: Constraint where
     InsertRow sch tab '[] '[] = ()
     InsertRow sch tab
-      (col ::: ty ': row) (col ::: defness :=> ty ': columns) =
-        InsertRow sch tab row columns
-    InsertRow sch tab
-      (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) = TypeError
-        ( 'Text "Could not match type " ':<>: ShowType ty0
-          ':<>: 'Text " with expected type " ':<>: ShowType ty1
-          ':<>: 'Text " for columns " ':<>: 'Text col
-          ':<>: 'Text " in table "
-          ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
+      (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) =
+        (ty0 ~ ty1, InsertRow sch tab row columns)
+    -- InsertRow sch tab
+    --   (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) = TypeError
+    --     ( 'Text "Could not match type " ':<>: ShowType ty0
+    --       ':<>: 'Text " with expected type " ':<>: ShowType ty1
+    --       ':<>: 'Text " for columns " ':<>: 'Text col
+    --       ':<>: 'Text " in table "
+    --       ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
     InsertRow sch tab row (alias ::: 'Def :=> ty' ': columns) =
       InsertRow sch tab row columns
     InsertRow sch tab row (alias ::: defness :=> 'Null ty ': columns) =
@@ -781,15 +791,11 @@ type family UpdateRow (sch :: Symbol) (tab :: Symbol)
   (row :: RowType) (columns :: ColumnsType) :: Constraint where
     UpdateRow sch tab '[] columns = ()
     UpdateRow sch tab
-      (col ::: ty ': row) (col ::: defness :=> ty ': columns) =
-        UpdateRow sch tab row columns
+      (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) =
+        (ty0 ~ ty1, UpdateRow sch tab row columns)
     UpdateRow sch tab
-      (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) = TypeError
-        ( 'Text "Could not match type " ':<>: ShowType ty0
-          ':<>: 'Text " with expected type " ':<>: ShowType ty1
-          ':<>: 'Text " for columns " ':<>: 'Text col
-          ':<>: 'Text " in table "
-          ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
+      (col0 ::: ty0 ': row) (col1 ::: ty1 ': columns) =
+        UpdateRow sch tab (col0 ::: ty0 ': row) columns
     UpdateRow sch tab row (alias ::: 'Def :=> ty' ': columns) =
       UpdateRow sch tab row columns
     UpdateRow sch tab row (alias ::: defness :=> 'Null ty ': columns) =
