@@ -55,6 +55,7 @@ module Squeal.PostgreSQL.Manipulation
 import Control.DeepSeq
 import Data.ByteString hiding (foldr)
 import Data.Kind (Type)
+import GHC.TypeLits
 
 import qualified Generics.SOP as SOP
 import qualified GHC.Generics as GHC
@@ -134,7 +135,7 @@ let
   manipulation = insertInto_ #tab (Subquery (select Star (from (table #tab))))
 in printSQL manipulation
 :}
-INSERT INTO "tab" SELECT * FROM "tab" AS "tab"
+INSERT INTO "tab" ("col1", "col2") SELECT * FROM "tab" AS "tab"
 
 update:
 
@@ -191,7 +192,7 @@ let
     (insertInto_ #products_deleted (Subquery (select Star (from (common #del)))))
 in printSQL manipulation
 :}
-WITH "del" AS (DELETE FROM "products" WHERE ("date" < ($1 :: date)) RETURNING *) INSERT INTO "products_deleted" SELECT * FROM "del" AS "del"
+WITH "del" AS (DELETE FROM "products" WHERE ("date" < ($1 :: date)) RETURNING *) INSERT INTO "products_deleted" ("product", "date") SELECT * FROM "del" AS "del"
 -}
 newtype Manipulation
   (commons :: FromType)
@@ -266,7 +267,7 @@ data QueryClause commons schemas params row where
     -> [NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[])) row]
     -> QueryClause commons schemas params row
   Subquery
-    :: SOP.SListI row
+    :: (SOP.SListI row, SOP.All RenderCol row)
     => Query '[] commons schemas params row
     -> QueryClause commons schemas params row
 
@@ -278,13 +279,35 @@ instance RenderSQL (QueryClause commons schemas params row) where
       <+> commaSeparated
             ( parenthesized
             . renderCommaSeparated renderValuePart <$> row0 : rows )
-    Subquery qry -> renderQuery qry
+    Subquery qry ->
+      parenthesized (commaSeparated (renderCols (SOP.hpure SOP.Proxy :: SOP.NP SOP.Proxy row)))
+      <+>
+      renderQuery qry
     where
       renderAliasPart, renderValuePart
         :: Aliased (Expression '[] 'Ungrouped commons schemas params '[]) col
         -> ByteString
       renderAliasPart (_ `As` name) = renderSQL name
       renderValuePart (value `As` _) = renderSQL value
+
+class RenderCol column where
+  renderCol :: SOP.Proxy column -> ByteString
+instance (KnownSymbol col, column ~ (col ::: ty))
+  => RenderCol column where
+    renderCol _ = renderSQL (Alias @col)
+
+renderCols
+  :: forall xs. (SOP.SListI (xs :: RowType), SOP.All RenderCol xs)
+  => NP SOP.Proxy xs -> [ByteString]
+renderCols = case SOP.sList @xs of
+  SOP.SNil -> \ SOP.Nil -> []
+  SOP.SCons -> \ (p SOP.:* ps) -> renderCol p : renderCols ps
+
+-- renderCol
+--   :: forall col ty column.
+--   ( KnownSymbol col, column ~ (col ::: ty) )
+--   => SOP.Proxy column -> ByteString
+-- renderCol _ = renderSQL (Alias @col)
 
 pattern Values_
   :: SOP.SListI row
