@@ -130,7 +130,7 @@ let
   insertUser = with (u `as` #u) e
     where
       u = insertInto #users
-        (Values_ (param @1 `as` #name))
+        (Values_ (set (param @1) `as` #name))
         OnConflictDoRaise (Returning_ (#id :* param @2 `as` #email))
       e = insertInto_ #emails
         (Subquery (select_ (#u ! #id `as` #user_id :* #u ! #email) (from (common #u))))

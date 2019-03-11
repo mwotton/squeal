@@ -278,7 +278,7 @@ insertMigration
   => Manipulation '[] schemas '[ 'NotNull 'PGtext] '[]
 insertMigration =
   insertInto_ (#migrations ! #schema_migrations) . Values_ $
-    (param @1) `as` #name
+    set (param @1) `as` #name
 
 -- | Deletes a `Migration` from the `MigrationsTable`
 deleteMigration

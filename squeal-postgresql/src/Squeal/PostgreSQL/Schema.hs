@@ -756,10 +756,13 @@ single :: p x0 x1 -> AlignedList p x0 x1
 single step = step :>> Done
 
 type family InsertRow (sch :: Symbol) (tab :: Symbol)
-  (row :: RowType) (columns :: ColumnsType) :: Constraint where
+  (inserts :: ColumnsType) (columns :: ColumnsType) :: Constraint where
     InsertRow sch tab '[] '[] = ()
     InsertRow sch tab
-      (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) =
+      (col ::: 'NoDef :=> ty0 ': row) (col ::: 'NoDef :=> ty1 ': columns) =
+        (ty0 ~ ty1, InsertRow sch tab row columns)
+    InsertRow sch tab
+      (col ::: 'Def :=> ty0 ': row) (col ::: defness :=> ty1 ': columns) =
         (ty0 ~ ty1, InsertRow sch tab row columns)
     InsertRow sch tab row (col ::: 'Def :=> ty' ': columns) =
       InsertRow sch tab row columns

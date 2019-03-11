@@ -64,12 +64,12 @@ teardown = dropTable #emails >>> dropTable #users
 
 insertUser :: Manipulation_ Schemas (Text, VarArray (Vector (Maybe Int16))) (Only Int32)
 insertUser = insertInto #users
-  (Values_ (param @1 `as` #name :* param @2 `as` #vec))
+  (Values_ (set (param @1) `as` #name :* set (param @2) `as` #vec))
   (OnConflict (OnConstraint #pk_users) DoNothing) (Returning_ (#id `as` #fromOnly))
 
 insertEmail :: Manipulation_ Schemas (Int32, Maybe Text) ()
 insertEmail = insertInto_ #emails
-  (Values_ (param @1 `as` #user_id :* param @2 `as` #email))
+  (Values_ (set (param @1) `as` #user_id :* set (param @2) `as` #email))
 
 getUsers :: Query_ Schemas () User
 getUsers = select_

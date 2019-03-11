@@ -59,7 +59,7 @@ instance SOP.HasDatatypeInfo User
 insertUser :: Manipulation '[] Schemas '[ 'NotNull 'PGtext, 'NotNull ('PGvararray ('Null 'PGint2))]
   '[ "fromOnly" ::: 'NotNull 'PGint4 ]
 insertUser = insertInto #users
-  (Values_ (param @1 `as` #name :* param @2 `as` #vec))
+  (Values_ (set (param @1) `as` #name :* set (param @2) `as` #vec))
   OnConflictDoRaise (Returning (#id `as` #fromOnly))
 
 setup :: Definition (Public '[]) Schemas

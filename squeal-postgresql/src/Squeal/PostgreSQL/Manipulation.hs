@@ -12,12 +12,14 @@ Squeal data manipulation language.
     DeriveGeneric
   , FlexibleContexts
   , FlexibleInstances
+  , FunctionalDependencies
   , GADTs
   , GeneralizedNewtypeDeriving
   , LambdaCase
   , MultiParamTypeClasses
   , OverloadedStrings
   , PatternSynonyms
+  , QuantifiedConstraints
   , RankNTypes
   , ScopedTypeVariables
   , TypeApplications
@@ -50,6 +52,8 @@ module Squeal.PostgreSQL.Manipulation
   , deleteFrom
   , deleteFrom_
   , also
+  , Optional (..)
+  , set
   ) where
 
 import Control.DeepSeq
@@ -92,7 +96,7 @@ parameterized insert:
 let
   manipulation :: Manipulation '[] (Public Schema) '[ 'NotNull 'PGint4, 'NotNull 'PGint4 ] '[]
   manipulation =
-    insertInto_ #tab (Values_ (param @1 `as` #col1 :* param @2 `as` #col2))
+    insertInto_ #tab (Values_ (set (param @1) `as` #col1 :* set (param @2) `as` #col2))
 in printSQL manipulation
 :}
 INSERT INTO "tab" ("col1", "col2") VALUES (($1 :: int4), ($2 :: int4))
@@ -103,7 +107,7 @@ returning insert:
 let
   manipulation :: Manipulation '[] (Public Schema) '[] '["fromOnly" ::: 'NotNull 'PGint4]
   manipulation =
-    insertInto #tab (Values_ (2 `as` #col1 :* 3 `as` #col2))
+    insertInto #tab (Values_ (set (2 `as` #col1) :* set (3 `as` #col2)))
       OnConflictDoRaise (Returning (#col1 `as` #fromOnly))
 in printSQL manipulation
 :}
@@ -119,7 +123,7 @@ let
   manipulation :: Manipulation '[] (Public CustomersSchema) '[] '[]
   manipulation =
     insertInto #customers
-      (Values_ ("John Smith" `as` #name :* "john@smith.com" `as` #email))
+      (Values_ (set "John Smith" `as` #name :* set "john@smith.com" `as` #email))
       (OnConflict (OnConstraint #uq)
         (DoUpdate (((#excluded ! #email) <> "; " <> (#customers ! #email)) `as` #email) []))
       (Returning_ Nil)
@@ -142,7 +146,7 @@ update:
 >>> :{
 let
   manipulation :: Manipulation '[] (Public Schema) '[] '[]
-  manipulation = update_ #tab (2 `as` #col1) (#col1 ./= #col2)
+  manipulation = update_ #tab (set 2 `as` #col1) (#col1 ./= #col2)
 in printSQL manipulation
 :}
 UPDATE "tab" SET "col1" = 2 WHERE ("col1" <> "col2")
@@ -260,21 +264,77 @@ insertInto_
 insertInto_ tab qry =
   insertInto tab qry OnConflictDoRaise (Returning_ Nil)
 
-data QueryClause commons schemas params row where
+class Insertive columns ins outs | columns ins -> outs where
+instance Insertive columns '[] columns
+instance
+  ( Insertive columns ins outs
+  , col0 ~ col1
+  , ty0 ~ ty1
+  ) => Insertive
+    (col0 ::: 'Def  :=> ty0 ': columns)
+    (col1 ::: defness :=> ty1 ': ins)
+    outs
+instance
+  ( Insertive columns ins outs
+  , col0 ~ col1
+  , ty0 ~ ty1
+  ) => Insertive
+    (col0 ::: 'NoDef :=> ty0 ': columns)
+    (col1 ::: 'NoDef :=> ty1 ': ins)
+    outs
+instance Insertive columns ins outs
+  => Insertive (col ::: 'Def :=> ty ': columns) ins outs
+instance Insertive columns ins outs
+  => Insertive (col ::: 'NoDef :=> 'Null ty ': columns) ins outs
+
+-- type family InsertRow (sch :: Symbol) (tab :: Symbol)
+--   (inserts :: ColumnsType) (columns :: ColumnsType) :: Constraint where
+--     InsertRow sch tab '[] '[] = ()
+--     InsertRow sch tab
+--       (col ::: 'NoDef :=> ty0 ': row) (col ::: 'NoDef :=> ty1 ': columns) =
+--         (ty0 ~ ty1, InsertRow sch tab row columns)
+--     InsertRow sch tab
+--       (col ::: 'Def :=> ty0 ': row) (col ::: defness :=> ty1 ': columns) =
+--         (ty0 ~ ty1, InsertRow sch tab row columns)
+--     InsertRow sch tab row (col ::: 'Def :=> ty' ': columns) =
+--       InsertRow sch tab row columns
+--     InsertRow sch tab row (col ::: defness :=> 'Null ty ': columns) =
+--       InsertRow sch tab row columns
+--     InsertRow sch tab (col ': row) '[] = TypeError
+--       ( 'Text "Column " ':<>: 'ShowType col
+--         ':<>: 'Text " not found in table "
+--         ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
+
+-- type family UpdateRow (sch :: Symbol) (tab :: Symbol)
+--   (row :: RowType) (columns :: ColumnsType) :: Constraint where
+--     UpdateRow sch tab '[] columns = ()
+--     UpdateRow sch tab
+--       (col ::: ty0 ': row) (col ::: defness :=> ty1 ': columns) =
+--         (ty0 ~ ty1, UpdateRow sch tab row columns)
+--     UpdateRow sch tab row (col ::: ty ': columns) =
+--         UpdateRow sch tab row columns
+--     UpdateRow sch tab (col ': row) '[] = TypeError
+--       ( 'Text "Column " ':<>: 'ShowType col
+--         ':<>: 'Text " not found in table "
+--         ':<>: 'Text sch ':<>: 'Text "." ':<>: 'Text tab )
+
+data QueryClause commons schemas params columns where
   Values
-    :: SOP.SListI row
-    => NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[])) row
-    -> [NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[])) row]
-    -> QueryClause commons schemas params row
+    :: (SOP.All RenderCol inserts, 
+    => NP (Aliased (Optional (Expression '[] 'Ungrouped commons schemas params '[]))) columns
+    -> [NP (Aliased (Optional (Expression '[] 'Ungrouped commons schemas params '[]))) columns]
+    -> QueryClause commons schemas params columns
   Subquery
-    :: (SOP.SListI row, SOP.All RenderCol row)
+    :: (SOP.All RenderCol columns, ColumnsToRow columns ~ row)
     => Query '[] commons schemas params row
-    -> QueryClause commons schemas params row
+    -> QueryClause commons schemas params columns
+
+data QueryClause_ commons schemas params colum
 
 instance RenderSQL (QueryClause commons schemas params row) where
   renderSQL = \case
     Values row0 rows ->
-      parenthesized (renderCommaSeparated renderAliasPart row0)
+      parenthesized (commaSeparated (renderCols row0))
       <+> "VALUES"
       <+> commaSeparated
             ( parenthesized
@@ -284,35 +344,28 @@ instance RenderSQL (QueryClause commons schemas params row) where
       <+>
       renderQuery qry
     where
-      renderAliasPart, renderValuePart
-        :: Aliased (Expression '[] 'Ungrouped commons schemas params '[]) col
+      renderValuePart
+        :: Aliased (Optional (Expression '[] 'Ungrouped commons schemas params '[])) column
         -> ByteString
-      renderAliasPart (_ `As` name) = renderSQL name
       renderValuePart (value `As` _) = renderSQL value
 
 class RenderCol column where
-  renderCol :: SOP.Proxy column -> ByteString
-instance (KnownSymbol col, column ~ (col ::: ty))
+  renderCol :: proxy column -> ByteString
+instance (KnownSymbol col, column ~ (col ::: defness :=> ty))
   => RenderCol column where
     renderCol _ = renderSQL (Alias @col)
 
 renderCols
-  :: forall xs. (SOP.SListI (xs :: RowType), SOP.All RenderCol xs)
-  => NP SOP.Proxy xs -> [ByteString]
+  :: forall xs proxy. (SOP.SListI (xs :: ColumnsType), SOP.All RenderCol xs)
+  => NP proxy xs -> [ByteString]
 renderCols = case SOP.sList @xs of
   SOP.SNil -> \ SOP.Nil -> []
   SOP.SCons -> \ (p SOP.:* ps) -> renderCol p : renderCols ps
 
--- renderCol
---   :: forall col ty column.
---   ( KnownSymbol col, column ~ (col ::: ty) )
---   => SOP.Proxy column -> ByteString
--- renderCol _ = renderSQL (Alias @col)
-
 pattern Values_
-  :: SOP.SListI row
-  => NP (Aliased (Expression '[] 'Ungrouped commons schemas params '[])) row
-  -> QueryClause commons schemas params row
+  :: SOP.All RenderCol columns
+  => NP (Aliased (Optional (Expression '[] 'Ungrouped commons schemas params '[]))) columns
+  -> QueryClause commons schemas params columns
 pattern Values_ vals = Values vals []
 
 -- | A `ReturningClause` computes and return value(s) based
@@ -504,3 +557,14 @@ also
   -> FromClause outer commons schemas params (Join left right)
 also right left = UnsafeFromClause $
   renderSQL left <> "," <+> renderSQL right
+
+data Optional expr ty where
+  Default :: Optional expr ('Def :=> ty)
+  Specific :: expr ty -> Optional expr ('NoDef :=> ty)
+instance (forall ty0. RenderSQL (expr ty0)) => RenderSQL (Optional expr ty) where
+  renderSQL = \case
+    Default -> "DEFAULT"
+    Specific expr -> renderSQL expr
+
+set :: expr ty -> Optional expr ('NoDef :=> ty)
+set = Specific
