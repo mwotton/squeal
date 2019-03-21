@@ -70,6 +70,7 @@ module Squeal.PostgreSQL.Schema
   , IsNotElem
   , AllUnique
   , DefaultAliasable (..)
+  , FieldsOf (..)
     -- * Enumerated Labels
   , IsPGlabel (..)
   , PGlabel (..)
@@ -757,3 +758,10 @@ single step = step :>> Done
 -- | A useful operator for ending an `NP` list of length at least 2 without `Nil`.
 (*:) :: f x -> f y -> NP f '[x,y]
 x *: y = x :* y :* Nil
+
+class All KnownSymbol aliases => FieldsOf row aliases | row -> aliases where
+  fieldsOf :: NP Alias aliases
+instance FieldsOf '[] '[] where fieldsOf = Nil
+instance (KnownSymbol alias0, FieldsOf row aliases, alias0 ~ alias1)
+  => FieldsOf (alias0 ::: ty ': row) (alias1 ': aliases)
+    where fieldsOf = Alias :* fieldsOf @row

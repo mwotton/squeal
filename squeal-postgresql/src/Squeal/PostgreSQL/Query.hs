@@ -1211,3 +1211,15 @@ instance With (Query outer) where
   with Done query = query
   with ctes query = UnsafeQuery $
     "WITH" <+> renderSQL ctes <+> renderSQL query
+
+withRecursive
+  :: forall cte aliases common outer commons schemas params row
+  .  (FieldsOf cte aliases, SListI aliases, All KnownSymbol aliases)
+  => Aliased (Query '[cte ::: common] commons schemas params) (cte ::: common)
+  -> Query outer (cte ::: common ': commons) schemas params row
+  -> Query outer commons schemas params row
+withRecursive (recursive `As` alias) query = UnsafeQuery $
+  "WITH RECURSIVE" <+> renderSQL alias
+    <+> parenthesized (renderCommaSeparated renderSQL (fieldsOf @cte))
+    <+> "AS" <+> parenthesized (renderSQL recursive)
+    <+> renderSQL query
