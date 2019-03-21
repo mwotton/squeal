@@ -703,8 +703,10 @@ There are several reasons why one might want to use schemas:
 -}
 type SchemasType = [(Symbol,SchemaType)]
 
-{-|
-
+{-| By default tables (and other objects) are automatically
+put into a schema named “public”. Every new database contains such a schema.
+The `Public` type family can be used when you don't need to access
+any other schemas.
 -}
 type family Public (schema :: SchemaType) :: SchemasType
   where Public schema = '["public" ::: schema]

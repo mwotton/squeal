@@ -53,6 +53,7 @@ module Squeal.PostgreSQL.Query
     -- ** With
   , With (..)
   , CommonTableExpression (..)
+  , withRecursive
     -- ** Unnest
   , unnest
     -- ** Json
@@ -1213,13 +1214,11 @@ instance With (Query outer) where
     "WITH" <+> renderSQL ctes <+> renderSQL query
 
 withRecursive
-  :: forall cte aliases common outer commons schemas params row
-  .  (FieldsOf cte aliases, SListI aliases, All KnownSymbol aliases)
-  => Aliased (Query '[cte ::: common] commons schemas params) (cte ::: common)
-  -> Query outer (cte ::: common ': commons) schemas params row
+  :: Aliased (Query outer (recursive ': commons) schemas params) recursive
+  -> Query outer (recursive ': commons) schemas params row
   -> Query outer commons schemas params row
 withRecursive (recursive `As` alias) query = UnsafeQuery $
   "WITH RECURSIVE" <+> renderSQL alias
-    <+> parenthesized (renderCommaSeparated renderSQL (fieldsOf @cte))
+    <+> parenthesized ("")
     <+> "AS" <+> parenthesized (renderSQL recursive)
     <+> renderSQL query
