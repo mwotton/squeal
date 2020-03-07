@@ -134,12 +134,14 @@ test-suite spec
   build-depends:
       base >= 4.10.0.0
     , async >= 2.2.2
+    , binary-parser >= 0.5.5
     , bytestring >= 0.10.8.2
     , generics-sop >= 0.3.1.0
     , hspec >= 2.4.8
     , mtl >= 2.2.2
     , squeal-postgresql
     , text >= 1.2.2.2
+    , transformers
     , vector >= 0.12.0.1
 
 executable example

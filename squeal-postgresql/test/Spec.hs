@@ -7,6 +7,7 @@
   , DuplicateRecordFields
   , FlexibleContexts
   , FlexibleInstances
+  , GeneralizedNewtypeDeriving
   , MultiParamTypeClasses
   , OverloadedLabels
   , OverloadedStrings
@@ -23,8 +24,15 @@ module Main (main) where
 import Control.Concurrent.Async (replicateConcurrently)
 import Data.ByteString (ByteString)
 import Data.Int (Int32)
+import Data.Word(Word16)
 import Data.Text (Text)
 import Test.Hspec
+
+-- for decoding only: perhaps this should be a separate compilation test.
+import BinaryParser.Internal
+import BinaryParser
+import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.Except
 
 import qualified Data.ByteString.Char8 as Char8 (unlines)
 import qualified Generics.SOP as SOP
@@ -217,3 +225,8 @@ spec = before_ setupDB . after_ dropDB $ do
       out2_array `shouldBe` Just (Only people)
       unsafe_array `shouldBe` Just (Only (VarArray [Composite adam]))
       nothings `shouldBe` Just (Only (Person Nothing Nothing))
+
+
+class Decodable x where decode :: BinaryParser x
+instance Decodable Word16 where decode = beWord16
+newtype MyWord16 = My Word16 deriving newtype Decodable
